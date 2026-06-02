@@ -27,6 +27,7 @@ SYNC_ERR_NETWORK = 40001
 SYNC_ERR_VERSION = 40002
 SYNC_ERR_SERVER = 40003
 SYNC_ERR_NO_PLUGIN = 40004
+INSTALL_ERR_SPACE_NOT_ENOUGH = 4015
 ICON_DOWNLOAD_TIMEOUT = 5
 ERROR_LOG_NAME = "error.log"
 ERROR_LOG_MAX_BYTES = 16384
@@ -1366,6 +1367,48 @@ local function download_fpk(url, dest_path)
 	return st and st.size and st.size > 0
 end
 
+local function get_available_space_kb(path)
+	local target = trim_str(path or "")
+	if target == "" then
+		target = "/"
+	end
+	local cmd = "df -kP " .. target:gsub(" ", "\\ ") .. " 2>/dev/null"
+	local fp = io.popen(cmd)
+	if not fp then
+		return nil
+	end
+	local header = fp:read("*l")
+	local line = fp:read("*l")
+	fp:close()
+	if not header or not line then
+		return nil
+	end
+	local avail = line:match("^%S+%s+%S+%s+%S+%s+(%S+)")
+	log("available space " .. avail)
+	return parse_positive_int(avail)
+end
+
+local function check_install_capacity(pkg_path)
+	local st = nfs.stat(pkg_path)
+	if not st or not st.size or st.size <= 0 then
+		return true
+	end
+	local package_kb = math.floor((st.size + 1023) / 1024)
+	local required_kb = package_kb + 64
+	local available_kb = get_available_space_kb(APP_CENTER_APP_LIST)
+	log("available_kb=" .. tostring(available_kb) .. ", package_kb=" .. tostring(package_kb) .. ", required_kb=" .. tostring(required_kb))
+
+	if not available_kb then
+		log("install capacity check skipped: failed to get available space")
+		return true
+	end
+	if available_kb <= required_kb then
+		log("install capacity not enough: available_kb=" .. tostring(available_kb) .. ", package_kb=" .. tostring(package_kb) .. ", required_kb=" .. tostring(required_kb))
+		return false, available_kb, package_kb, required_kb
+	end
+	return true, available_kb, package_kb, required_kb
+end
+
 local function install_sha256_of_file(path)
 	local esc = path:gsub(" ", "\\ ")
 	local actual = nil
@@ -1741,6 +1784,17 @@ function api_install_app()
 	if not download_fpk(url, tmp_pkg) then
 		pcall(nfs.unlink, tmp_pkg)
 		write_app_error(4002, "download failed", name, pkg)
+		return
+	end
+
+	local capacity_ok, available_kb, package_kb, required_kb = check_install_capacity(tmp_pkg)
+	if not capacity_ok then
+		pcall(nfs.unlink, tmp_pkg)
+		write_app_error(INSTALL_ERR_SPACE_NOT_ENOUGH, "system capacity is insufficient", name, pkg, {
+			available_kb = available_kb or 0,
+			package_kb = package_kb or 0,
+			required_kb = required_kb or 0
+		})
 		return
 	end
 

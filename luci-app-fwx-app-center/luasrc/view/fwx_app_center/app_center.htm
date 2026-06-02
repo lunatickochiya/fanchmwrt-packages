@@ -861,6 +861,7 @@
     var _InstallKernelMismatch = '<%:Install blocked: kernel version mismatch, please reinstall this plugin%>';
     var _InstallFirmwareMismatch = '<%:Install blocked: firmware version mismatch, please reinstall this plugin%>';
     var _InstallVersionCheckFailed = '<%:Install blocked: runtime version check failed%>';
+    var _SystemCapacityInsufficient = '<%:System capacity is insufficient%>';
     var _Reason = '<%:Reason%>';
     var _ErrorLog = '<%:Error log%>';
     var _ErrorLogTruncated = '<%:Error log is too long and has been truncated%>';
@@ -1230,6 +1231,10 @@
         }
         if (code === 4014) {
             lines.push(_InstallVersionCheckFailed);
+            return lines.join('\n');
+        }
+        if (code === 4015) {
+            lines.push(_SystemCapacityInsufficient);
             return lines.join('\n');
         }
         var reason = normalizeString(resp && resp.msg);

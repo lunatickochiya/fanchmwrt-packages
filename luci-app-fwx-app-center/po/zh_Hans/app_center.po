@@ -133,6 +133,9 @@ msgstr "安装受阻，固件版本不匹配，请重新安装该插件"
 msgid "Install blocked: runtime version check failed"
 msgstr "安装受阻，运行环境版本检查失败"
 
+msgid "System capacity is insufficient"
+msgstr "系统容量不足"
+
 msgid "Region"
 msgstr "区域"
 
