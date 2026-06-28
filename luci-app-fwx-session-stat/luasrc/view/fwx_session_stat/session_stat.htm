@@ -116,7 +116,8 @@
 //<![CDATA[
 (function() {
     var currentRange = "5min";
-    var chart = echarts.init(document.getElementById("session-chart"));
+    var FWX_ECHART_RENDERER = "svg";
+    var chart = echarts.init(document.getElementById("session-chart"), null, { renderer: FWX_ECHART_RENDERER });
     var chartTheme = {};
 
     function getCSSVariable(name, defaultValue) {

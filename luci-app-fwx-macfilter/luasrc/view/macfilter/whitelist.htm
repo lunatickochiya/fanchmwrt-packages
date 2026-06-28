@@ -66,29 +66,32 @@
     .modal-content {
         background-color: #2d2d2d;
         color: #ffffff;
-        padding: 30px;
         border-radius: 8px;
-        width: 80%;
+        width: calc(100vw - 32px);
         max-width: 700px;
-        max-height: 80vh;
+        max-height: calc(100vh - 64px);
         display: flex;
         flex-direction: column;
         margin: auto;
         position: relative;
+        overflow: hidden;
+        box-sizing: border-box;
     }
     
     .modal-header {
         font-size: 20px;
         font-weight: bold;
-        margin-bottom: 20px;
+        padding: 20px 24px 14px;
+        border-bottom: 1px solid #444;
         color: #fff;
+        flex: 0 0 auto;
     }
     
     .user-list {
-        flex: 0 0 auto;
-        height: 420px;
+        flex: 1 1 auto;
+        min-height: 180px;
         overflow-y: auto;
-        margin: 15px 0;
+        margin: 0 24px;
         border: 1px solid #555;
         border-radius: 4px;
         background-color: #1e1e1e;
@@ -135,19 +138,25 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin: 10px 0 6px 0;
+        padding: 16px 24px 10px;
+        gap: 12px;
+        flex: 0 0 auto;
     }
 
     .selection-stat {
         color: #ccc;
         font-size: 13px;
+        white-space: nowrap;
     }
     
     .modal-buttons {
         display: flex;
         justify-content: flex-end;
         gap: 10px;
-        margin-top: 20px;
+        padding: 16px 24px;
+        border-top: 1px solid #444;
+        background-color: #2d2d2d;
+        flex: 0 0 auto;
     }
     
     .modal-btn {
@@ -155,6 +164,8 @@
         border-radius: 4px;
         cursor: pointer;
         font-size: 14px;
+        min-width: 84px;
+        line-height: 20px;
     }
     
     .modal-btn-primary {
@@ -168,7 +179,9 @@
     }
     
     .modal-btn-secondary {
-        border: 1px solid;
+        background-color: transparent;
+        color: #ddd;
+        border: 1px solid #666;
     }
     
     .modal-btn-secondary:hover {
@@ -200,6 +213,26 @@
         text-align: center;
         padding: 40px;
         color: #ccc;
+    }
+
+    @media (max-width: 600px) {
+        .modal-content {
+            width: calc(100vw - 20px);
+            max-height: calc(100vh - 24px);
+        }
+
+        .selection-toolbar {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
+        .modal-buttons {
+            justify-content: stretch;
+        }
+
+        .modal-buttons .modal-btn {
+            flex: 1;
+        }
     }
 </style>
 
@@ -468,7 +501,7 @@
         </div>
         <div class="user-list" id="userList">
         </div>
-        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <div class="modal-buttons">
             <button type="button" class="modal-btn modal-btn-primary" onclick="addSelectedUsers()"><%:OK%></button>
             <button type="button" class="modal-btn modal-btn-secondary" onclick="closeAddModal()"><%:Cancel%></button>
         </div>

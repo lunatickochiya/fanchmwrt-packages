@@ -334,17 +334,18 @@ local function read_first_line(path)
 	return trim_str(s)
 end
 
-local function get_release_date_for_app_center()
+local function read_fwx_release_params()
+	local out = {}
 	local f = io.open("/etc/fwx_release", "r")
 	if not f then
-		return ""
+		return out
 	end
 	for line in f:lines() do
 		local s = trim_str((line or ""):gsub("\r", ""))
 		s = s:gsub("^\239\187\191", "")
 		if s ~= "" and s:sub(1, 1) ~= "#" then
-			local v = s:match("^RELEASE_DATE%s*=%s*(.-)%s*$")
-			if v then
+			local k, v = s:match("^([%w_]+)%s*=%s*(.-)%s*$")
+			if k and v then
 				v = trim_str(v)
 				if #v >= 2 then
 					local first = v:sub(1, 1)
@@ -353,13 +354,48 @@ local function get_release_date_for_app_center()
 						v = v:sub(2, -2)
 					end
 				end
-				f:close()
-				return trim_str(v)
+				out[k] = trim_str(v)
 			end
 		end
 	end
 	f:close()
-	return ""
+	return out
+end
+
+local function get_fwx_release_value(name)
+	local params = read_fwx_release_params()
+	return trim_str(params[name] or "")
+end
+
+local function get_release_date_for_app_center()
+	return get_fwx_release_value("RELEASE_DATE")
+end
+
+local function get_fwx_release_params_for_app_center()
+	local params = read_fwx_release_params()
+	return {
+		release_date = trim_str(params.RELEASE_DATE or ""),
+		release_type = trim_str(params.RELEASE_TYPE or ""),
+		snapshot = trim_str(params.SNAPSHOT or "")
+	}
+end
+
+local function get_device_model_for_app_center()
+	local board = json_read_file("/etc/board.json")
+	local function normalize_model(v)
+		return trim_str(v or ""):gsub("%s+", "-")
+	end
+	if type(board) == "table" and type(board.model) == "table" then
+		local name = normalize_model(board.model.name)
+		if name ~= "" then
+			return name
+		end
+	end
+	local model = normalize_model(read_first_line("/proc/device-tree/model"))
+	if model ~= "" then
+		return model
+	end
+	return normalize_model(read_first_line("/tmp/sysinfo/board_name"))
 end
 
 local function resolve_download_release(release)
@@ -369,7 +405,6 @@ local function resolve_download_release(release)
 	end
 
 	local release_date = get_release_date_for_app_center()
-	log("resolve_download_release: release=SNAPSHOT, release_date=" .. tostring(release_date))
 	return trim_str(release_date)
 end
 
@@ -394,20 +429,17 @@ local function read_boot_code(name)
 	local p = app_boot_data_path(name)
 	local st = nfs.stat(p)
 	if not st or st.type ~= "reg" then
-		log("boot_data not found: name=" .. tostring(name) .. " path=" .. p)
 		return nil
 	end
 	local plain = read_first_line(p)
 	local plain_code = parse_boot_code_value(plain)
 	if plain_code ~= nil then
-		log("boot_data loaded plain: name=" .. tostring(name) .. " code=" .. tostring(plain_code))
 		return plain_code
 	end
 	local f = io.open(p, "r")
 	local raw = f and (f:read("*a") or "") or ""
 	if f then f:close() end
 	if raw == "" then
-		log("boot_data parse failed: name=" .. tostring(name) .. " path=" .. p .. " reason=empty")
 		return nil
 	end
 	local ok, parsed = pcall(json.parse, raw)
@@ -415,18 +447,15 @@ local function read_boot_code(name)
 		if type(parsed) == "table" then
 			local code = parse_boot_code_value(parsed.code)
 			if code ~= nil then
-				log("boot_data loaded json object: name=" .. tostring(name) .. " code=" .. tostring(code))
 				return code
 			end
 		else
 			local code = parse_boot_code_value(parsed)
 			if code ~= nil then
-				log("boot_data loaded json value: name=" .. tostring(name) .. " code=" .. tostring(code))
 				return code
 			end
 		end
 	end
-	log("boot_data parse failed: name=" .. tostring(name) .. " path=" .. p .. " reason=invalid")
 	return nil
 end
 
@@ -747,15 +776,12 @@ end
 local function cache_read()
 	local cache = json_read_file(APP_CENTER_CACHE)
 	if type(cache) ~= "table" then
-		log("cache_read: invalid cache content")
 		return nil
 	end
 	if type(cache.Url) ~= "string" then
-		log("cache_read: missing Url")
 		return nil
 	end
 	if type(cache.PackageList) ~= "table" then
-		log("cache_read: missing PackageList")
 		return nil
 	end
 	return {
@@ -925,7 +951,6 @@ local function apply_boot_code_after_merge(data)
 				local boot_code = read_boot_code(name)
 				row.BootCode = boot_code
 				row.boot_code = boot_code
-				log("apply boot_code after merge: name=" .. name .. " boot_code=" .. tostring(boot_code))
 			else
 				row.BootCode = nil
 				row.boot_code = nil
@@ -993,16 +1018,13 @@ local function detect_request_region()
 	local raw_query_region = trim_str(http.formvalue("region") or "")
 	local from_query = normalize_region(raw_query_region)
 	if from_query ~= "" then
-		log("region detect: source=query, raw=" .. raw_query_region .. ", normalized=" .. from_query)
 		return from_query
 	end
 	local raw_accept_lang = trim_str(http.getenv("HTTP_ACCEPT_LANGUAGE") or "")
 	local accept_lang = raw_accept_lang:lower()
 	if accept_lang:find("zh", 1, true) then
-		log("region detect: source=accept_language, raw=" .. raw_accept_lang .. ", normalized=cn")
 		return "cn"
 	end
-	log("region detect: source=default, raw=" .. raw_accept_lang .. ", normalized=en")
 	return "en"
 end
 
@@ -1011,11 +1033,9 @@ local function resolve_region_by_luci_lang(detected_region)
 	local detected_raw = trim_str(detected_region or ""):lower()
 	if lang == "" or lang == "auto" then
 		local out = detected_raw:find("cn", 1, true) and "cn" or "en"
-		log("region resolve: luci_lang=" .. tostring(lang) .. ", mode=auto_detect, detected_raw=" .. tostring(detected_raw) .. ", final=" .. tostring(out))
 		return out
 	end
 	local fixed = lang:find("cn", 1, true) and "cn" or "en"
-	log("region resolve: luci_lang=" .. tostring(lang) .. ", mode=fixed, final=" .. tostring(fixed))
 	return fixed
 end
 
@@ -1046,16 +1066,13 @@ end
 
 local function get_current_firmware_version()
 	local raw = read_first_line("/etc/fwx_version")
-	log("raw version = " .. raw)
 	if raw == "" then
 		return ""
 	end
 	raw = trim_str(raw)
 	if raw:match("^[0-9]+%.[0-9]+%.[0-9]+$") then
-		log("valid ok")
 		return raw
 	end
-	log("validate error")
 	return ""
 end
 
@@ -1065,7 +1082,6 @@ local function check_pkg_runtime_requirements(pkg)
 	end
 	local req_kernel = trim_str(pkg.KernelVersion or "")
 	local req_fw = trim_str(pkg.MinFwVersion or "")
-	log("req kernel = "..req_kernel .. "req fw = ".. req_fw)
 
 	if not version_check_disabled(req_kernel) then
 		local kf = io.popen("uname -r 2>/dev/null")
@@ -1081,8 +1097,6 @@ local function check_pkg_runtime_requirements(pkg)
 
 	if not version_check_disabled(req_fw) then
 		local current_fw = get_current_firmware_version()
-		log("current fw version = " ..current_fw)
-		log("req fw = " .. req_fw)
 		local ok = version_triplet_ge(current_fw, req_fw)
 		if ok == nil then
 			return false, 4014, "firmware version format invalid"
@@ -1099,18 +1113,16 @@ local function fetch_server_list(arch, version, region)
 	local timeout_seconds = 20
 	local net_online = read_network_status_flag()
 	if net_online == false then
-		log("fetch_server_list skip: network offline by " .. tostring(NETWORK_STATUS_FILE))
 		return false, SYNC_ERR_NETWORK, "network offline", nil
 	end
 	local api_base = tostring(APP_CENTER_API_BASE or ""):gsub("/+$", "")
-	local release_date = get_release_date_for_app_center()
-	local api_url = api_base .. "/appcenter/get_app_list?arch=" .. util.urlencode(arch) .. "&version=" .. util.urlencode(version) .. "&release_date=" .. util.urlencode(release_date)
+	local release_params = get_fwx_release_params_for_app_center()
+	local model = get_device_model_for_app_center()
+	local api_url = api_base .. "/appcenter/get_app_list?arch=" .. util.urlencode(arch) .. "&version=" .. util.urlencode(version) .. "&release_date=" .. util.urlencode(release_params.release_date) .. "&release_type=" .. util.urlencode(release_params.release_type) .. "&snapshot=" .. util.urlencode(release_params.snapshot) .. "&model=" .. util.urlencode(model)
 	local req_region = normalize_region(region)
 	if req_region ~= "" then
 		api_url = api_url .. "&region=" .. util.urlencode(req_region)
 	end
-	log("fetch_server_list request: arch=" .. tostring(arch) .. ", version=" .. tostring(version) .. ", release_date=" .. tostring(release_date) .. ", region=" .. tostring(req_region))
-	log("fetch_server_list url=" .. tostring(api_url))
 	local started_at = parse_positive_int(os.time())
 	local wget_cmd = "wget -q --no-check-certificate -T " .. tostring(timeout_seconds) .. " -O - '" .. api_url:gsub("'", "'\\''") .. "' 2>&1"
 	local wf = io.popen(wget_cmd)
@@ -1124,9 +1136,6 @@ local function fetch_server_list(arch, version, region)
 	if started_at > 0 and ended_at > 0 and ended_at >= started_at then
 		elapsed = ended_at - started_at
 	end
-	log("fetch_server_list raw_len=" .. tostring(#raw))
-	log("fetch_server_list raw=" .. tostring(raw))
-	log("fetch_server_list close_ok=" .. tostring(close_ok) .. ", close_reason=" .. tostring(close_reason) .. ", close_code=" .. tostring(close_code) .. ", elapsed=" .. tostring(elapsed))
 	local ok, resp = pcall(json.parse, raw)
 	if ok and type(resp) == "table" and resp.code == SERVER_SUCCESS_CODE and type(resp.data) == "table" then
 		if type(resp.data.Url) == "string" and type(resp.data.PackageList) == "table" then
@@ -1216,7 +1225,6 @@ local function clear_app_cache_root()
 			end
 		end
 	end
-	log("app_cache cleared: removed=" .. tostring(removed))
 	return true
 end
 
@@ -1273,7 +1281,6 @@ local function download_icon_file(url, dst_path)
 		local http_url = "http://" .. url:sub(9)
 		ok = run_download_once(http_url)
 		if ok then
-			log("icon download fallback to http success: url=" .. tostring(http_url))
 		end
 	end
 	if not ok then return false end
@@ -1296,33 +1303,27 @@ end
 
 local function sync_icon_for_package(base_url, pkg)
 	if type(pkg) ~= "table" then
-		log("icon sync skip: invalid package row")
 		return "skip"
 	end
 	local name = trim_str(pkg.Name or "")
 	local with_icon = bool_value(pkg.WithIcon) == true
 	if name == "" then
-		log("icon sync skip: empty name")
 		return "skip"
 	end
 	if not with_icon then
-		log("icon sync skip: name=" .. name .. ", with_icon=0")
 		return "skip"
 	end
 	local download_url = resolve_icon_download_url(base_url, name)
 	if not download_url then
-		log("icon url invalid: name=" .. name)
 		return "fail"
 	end
 	local cache_dir = APP_CENTER_APP_CACHE .. "/" .. name
 	os.execute("mkdir -p " .. cache_dir:gsub(" ", "\\ ") .. " 2>/dev/null")
 	local dst = app_center_icon_src_path(name)
 	if not download_icon_file(download_url, dst) then
-		log("icon download failed: name=" .. name .. ", url=" .. tostring(download_url))
 		return "fail"
 	end
 	if not ensure_icon_symlink(name) then
-		log("icon symlink failed: name=" .. name .. ", src=" .. dst)
 		return "fail"
 	end
 	return "ok"
@@ -1361,11 +1362,9 @@ local function sync_icon_files(cache)
 			skip_count = skip_count + 1
 		end
 	end
-	log("icon sync summary: ok=" .. tostring(ok_count) .. ", fail=" .. tostring(fail_count) .. ", skip=" .. tostring(skip_count))
 end
 
 local function download_fpk(url, dest_path)
-	log("download url = " .. url);
 	local esc = dest_path:gsub(" ", "\\ ")
 	local wget_ret = os.execute("wget -q --no-check-certificate -T 60 -O " .. esc .. " '" .. url:gsub("'", "'\\''") .. "'")
 	if wget_ret ~= 0 then
@@ -1395,7 +1394,6 @@ local function get_available_space_kb(path)
 		return nil
 	end
 	local avail = line:match("^%S+%s+%S+%s+%S+%s+(%S+)")
-	log("available space " .. avail)
 	return parse_positive_int(avail)
 end
 
@@ -1407,14 +1405,11 @@ local function check_install_capacity(pkg_path)
 	local package_kb = math.floor((st.size + 1023) / 1024)
 	local required_kb = package_kb + 64
 	local available_kb = get_available_space_kb(APP_CENTER_APP_LIST)
-	log("available_kb=" .. tostring(available_kb) .. ", package_kb=" .. tostring(package_kb) .. ", required_kb=" .. tostring(required_kb))
 
 	if not available_kb then
-		log("install capacity check skipped: failed to get available space")
 		return true
 	end
 	if available_kb <= required_kb then
-		log("install capacity not enough: available_kb=" .. tostring(available_kb) .. ", package_kb=" .. tostring(package_kb) .. ", required_kb=" .. tostring(required_kb))
 		return false, available_kb, package_kb, required_kb
 	end
 	return true, available_kb, package_kb, required_kb
@@ -1449,7 +1444,6 @@ local function install_verify_sha256(path, expected_sha)
 		return false, "unavailable"
 	end
 	if actual ~= expected_sha:lower() then
-		log("sha256 mismatch: expected=" .. expected_sha .. ", actual=" .. actual)
 		return false, "mismatch"
 	end
 	return true
@@ -1488,25 +1482,17 @@ end
 
 
 local function install_run_install_sh(install_sh, work_dir, result_path)
-	log("running install.sh: " .. install_sh .. " in " .. work_dir .. " to " .. result_path)
 	local work_st = nfs.stat(work_dir)
 	if not work_st or work_st.type ~= "dir" then
-		log("invalid install work_dir: " .. tostring(work_dir))
 		return "4000"
 	end
 	local esc_work_dir = work_dir:gsub(" ", "\\ ")
-	local pwdf = io.popen("cd " .. esc_work_dir .. " && pwd")
-	if pwdf then
-		local current_dir = trim_str(pwdf:read("*l") or "")
-		pwdf:close()
-		log("current dir before install.sh: " .. current_dir)
-	end
 	if result_path and result_path ~= "" then
 		os.execute("rm -f " .. result_path:gsub(" ", "\\ ") .. " 2>/dev/null")
 	end
 	os.execute("rm -f " .. (work_dir .. "/error.log"):gsub(" ", "\\ ") .. " 2>/dev/null")
 	os.execute("chmod +x " .. install_sh:gsub(" ", "\\ ") .. " 2>/dev/null")
-	os.execute("cd " .. esc_work_dir .. " && /bin/sh " .. install_sh:gsub(" ", "\\ ") .. " </dev/null >> " .. APP_CENTER_LOG_FILE:gsub(" ", "\\ ") .. " 2>&1")
+	os.execute("cd " .. esc_work_dir .. " && /bin/sh " .. install_sh:gsub(" ", "\\ ") .. " </dev/null >/dev/null 2>&1")
 
 	local result_code = nil
 	if result_path then
@@ -1568,7 +1554,6 @@ local function install_save_app_meta(work_dir, app_dir, version, pkg)
 		local luci_apps_dst = app_dir .. "/luci-apps"
 		os.execute("rm -rf " .. luci_apps_dst:gsub(" ", "\\ ") .. " 2>/dev/null")
 		if os.execute("cp -fr " .. luci_apps_src:gsub(" ", "\\ ") .. " " .. luci_apps_dst:gsub(" ", "\\ ") .. " 2>/dev/null") ~= 0 then
-			log("copy luci-apps failed: src=" .. tostring(luci_apps_src) .. ", dst=" .. tostring(luci_apps_dst))
 		end
 	end
 	local vf = io.open(app_dir .. "/version", "w")
@@ -1602,16 +1587,13 @@ local function build_get_app_list_data(arch, version, need_sync, region)
 				if cache_after_sync then
 					cache = cache_after_sync
 					sync_ok = true
-					log("get_app_list sync success: api=" .. tostring(api_url))
 				else
 					sync_code = SYNC_ERR_SERVER
 					sync_msg = "cache readback failed"
-					log("get_app_list sync failed: " .. tostring(sync_msg))
 				end
 			else
 				sync_code = SYNC_ERR_SERVER
 				sync_msg = "failed to write cache"
-				log("get_app_list sync failed: " .. tostring(sync_msg))
 			end
 		else
 			sync_code = parse_positive_int(data_or_code)
@@ -1619,13 +1601,11 @@ local function build_get_app_list_data(arch, version, need_sync, region)
 				sync_code = SYNC_ERR_SERVER
 			end
 			sync_msg = tostring(data_or_msg)
-			log("get_app_list sync failed: " .. tostring(sync_msg) .. ", api=" .. tostring(api_url))
 		end
 	end
 	local installed = collect_installed_rows()
 	local from_local_cache = (not need_sync) or (not sync_ok)
 	local merged = build_merged_data(cache, installed, arch, version, from_local_cache, region)
-	log("begin merge")
 	merged = apply_boot_code_after_merge(merged)
 	local row_count = 0
 	local boot_count = 0
@@ -1642,7 +1622,6 @@ local function build_get_app_list_data(arch, version, need_sync, region)
 			boot_count = boot_count + 1
 		end
 	end
-	log("get_app_list merged summary: rows=" .. tostring(row_count) .. ", boot_code_rows=" .. tostring(boot_count))
 	return merged, sync_ok, sync_code, sync_msg
 end
 
@@ -1659,20 +1638,15 @@ function api_get_app_list()
 	local ok, err = xpcall(function()
 		local raw_sync = http.formvalue("sync")
 		local raw_region = http.formvalue("region")
-		log("api_get_app_list enter: raw_sync=" .. tostring(raw_sync) .. ", raw_region=" .. tostring(raw_region))
 		local need_sync = bool_value(raw_sync) == true
 		local detected_region = detect_request_region()
 		local region = resolve_region_by_luci_lang(detected_region)
-		log("api_get_app_list params: sync=" .. tostring(need_sync) .. ", detected_region=" .. tostring(detected_region) .. ", final_region=" .. tostring(region))
 		local arch, version = get_arch_and_version()
-		log("api_get_app_list env: arch=" .. tostring(arch) .. ", version=" .. tostring(version))
 		if not arch or arch == "" then
-			log("api_get_app_list fail: arch empty")
 			http.write(json.stringify({ code = SYNC_ERR_VERSION, msg = "failed to get arch" }))
 			return
 		end
 		if not version or version == "" then
-			log("api_get_app_list fail: version empty")
 			http.write(json.stringify({ code = SYNC_ERR_VERSION, msg = "failed to get version" }))
 			return
 		end
@@ -1684,14 +1658,12 @@ function api_get_app_list()
 				if app_center_write_last_update_ts(now_ts) then
 					last_update_ts = now_ts
 				else
-					log("api_get_app_list: write update meta failed")
 				end
 			end
 		end
 		if type(data) == "table" then
 			data.last_update_ts = last_update_ts
 		end
-		log("api_get_app_list merged: sync_ok=" .. tostring(sync_ok) .. ", sync_msg=" .. tostring(sync_msg))
 		if need_sync and not sync_ok then
 			http.write(json.stringify({
 				code = sync_code or SYNC_ERR_SERVER,
@@ -1713,7 +1685,6 @@ function api_get_app_list()
 		return tb
 	end)
 	if not ok then
-		log("api_get_app_list exception: " .. tostring(err))
 		http.write(json.stringify({ code = 5000, msg = "internal error" }))
 	end
 end
@@ -1727,7 +1698,6 @@ function api_install_app()
 	http.prepare_content("application/json")
 	local name = trim_str(http.formvalue("name"))
 	if name == "" then
-		log("install failed: name is required")
 		write_app_error(4000, "name is required", name, nil)
 		return
 	end
@@ -1754,14 +1724,12 @@ function api_install_app()
 	end
 	local req_ok, req_code, req_msg = check_pkg_runtime_requirements(pkg)
 	if not req_ok then
-		log("install blocked by runtime requirements, name=" .. name .. ", code=" .. tostring(req_code) .. ", msg=" .. tostring(req_msg))
 		write_app_error(req_code or 4014, req_msg or "runtime version check failed", name, pkg)
 		return
 	end
 	local missing_depends = get_missing_depends(name, pkg.Depends)
 	if #missing_depends > 0 then
 		local msg = "please install dependency apps first: " .. table.concat(missing_depends, ",")
-		log("install failed: missing depends, name=" .. name .. ", missing=" .. table.concat(missing_depends, ","))
 		write_app_error(4010, msg, name, pkg, { missing_depends = missing_depends })
 		return
 	end
@@ -1890,7 +1858,6 @@ function api_uninstall_app()
 	end
 	if #dependent_apps > 0 then
 		local msg = "uninstall failed, dependent apps: " .. table.concat(dependent_apps, ",")
-		log("uninstall blocked by depends, name=" .. name .. ", dependent_apps=" .. table.concat(dependent_apps, ","))
 		write_app_error(4011, msg, name, inst, { dependent_apps = dependent_apps, dependent_aliases = dependent_aliases })
 		return
 	end

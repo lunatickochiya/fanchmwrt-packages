@@ -76,8 +76,8 @@ msgstr "清理失败"
 msgid "Base Data Path"
 msgstr "基础数据目录"
 
-msgid "Basic data will be stored in this directory."
-msgstr "基础数据将存储在该目录。"
+msgid "The user's basic data and real-time data are stored in this directory, such as online duration, traffic usage and other information. The default is a temporary directory and will not be retained after reboot. You can change it to a persistent directory, such as /etc/fwx."
+msgstr "用户的基础数据和实时数据存放在该目录，比如上网时长、上网流量等信息，默认为临时目录重启不会保存，可以自行修改为持久目录，比如/etc/fwx等。"
 
 msgid "Base data path cannot be empty or /"
 msgstr "基础数据目录不能为空或 /"
